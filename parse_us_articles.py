@@ -37,28 +37,66 @@ def is_us_article(text: str, title: str) -> bool:
 
 def extract_sections(wikitext: str):
     wikicode = mwparserfromhell.parse(wikitext)
-    sections = wikicode.get_sections(flat=True, include_lead=True)
-
+    
+    # Initialize sections dictionary
     section_data = {heading: "" for heading in section_columns}
-
-    for i, section in enumerate(sections):
-        # First block without heading → Intro
-        if i == 0 and not section.filter_headings():
-            section_data["Intro"] = section.strip_code().strip()
-            continue
-
-        headings = section.filter_headings()
-        if not headings:
-            continue
-
-        heading = normalize_heading(headings[0].title.strip())
-        if heading in section_data:
-            content = section.strip_code().strip()
-            if section_data[heading]:
-                section_data[heading] += "\n\n" + content
+    
+    # Handle introduction (text before first heading)
+    intro_text = ""
+    nodes = wikicode.nodes
+    for node in nodes:
+        if isinstance(node, mwparserfromhell.nodes.heading.Heading):
+            break
+        intro_text += str(node)
+    
+    if intro_text.strip():
+        parsed_intro = mwparserfromhell.parse(intro_text).strip_code().strip()
+        section_data["Intro"] = parsed_intro
+    
+    # Extract all sections with their level
+    current_section = None
+    current_level = 0
+    buffer = ""
+    
+    for node in nodes:
+        if isinstance(node, mwparserfromhell.nodes.heading.Heading):
+            # Save content from previous section
+            if current_section and buffer:
+                parsed_content = mwparserfromhell.parse(buffer).strip_code().strip()
+                if parsed_content and current_section in section_data:
+                    if section_data[current_section]:
+                        section_data[current_section] += "\n\n" + parsed_content
+                    else:
+                        section_data[current_section] = parsed_content
+            
+            # Start new section
+            heading_title = normalize_heading(str(node.title))
+            level = node.level
+            
+            # Only reset for top-level headings
+            if level == 2:  # MediaWiki uses == for top-level section headings
+                current_section = heading_title
+                current_level = level
+                buffer = ""
             else:
-                section_data[heading] = content
-
+                # For subsections, keep the content under the parent section
+                # but add the subheading as part of the content
+                if current_section:
+                    buffer += f"\n{heading_title}\n"
+        else:
+            # Add content to current section
+            if current_section:
+                buffer += str(node)
+    
+    # Don't forget to process the last section
+    if current_section and buffer:
+        parsed_content = mwparserfromhell.parse(buffer).strip_code().strip()
+        if parsed_content and current_section in section_data:
+            if section_data[current_section]:
+                section_data[current_section] += "\n\n" + parsed_content
+            else:
+                section_data[current_section] = parsed_content
+    
     return section_data
 
 # Progress tracking
