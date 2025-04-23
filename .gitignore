@@ -20,3 +20,7 @@ venv/
 
 # OS files
 .DS_Store
+
+# large data files
+*.bz2
+*.csv
